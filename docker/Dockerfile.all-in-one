@@ -51,6 +51,9 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/helixsync.conf
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+# Fail the build on a broken nginx config instead of finding out at runtime.
+RUN nginx -t
+
 # The binary defaults to loopback; inside the container it must listen on the
 # container interface so nginx can reach it.
 ENV BIND_ADDR=0.0.0.0:8080
