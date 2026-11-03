@@ -1,9 +1,13 @@
 name: Sync upstream
 
-# Fork-only workflow: merges GhaziAlibi/helixsync main into this fork.
-# The fork adds nothing but these two workflow files, so path-disjoint merges
-# never conflict; upstream's release.yml is disabled in this fork so it cannot
-# push version-bump commits that would make the next merge conflict.
+# Fork-only workflow: merges GhaziAlibi/helixsync main into this fork. Runs
+# daily and on demand; it only updates the code — image builds are manual
+# (see docker-publish.yml).
+#
+# The fork adds nothing upstream doesn't have except these workflow files plus
+# docker/, so a merge is path-disjoint and never conflicts. Upstream's
+# release.yml is disabled in this fork because it would auto-bump VERSION and
+# push that commit back to main, which is exactly what would break this merge.
 on:
   schedule:
     # Daily at 03:00 UTC (11:00 Asia/Shanghai).
@@ -22,15 +26,12 @@ jobs:
     name: Merge upstream main
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    outputs:
-      updated: ${{ steps.merge.outputs.updated }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       - name: Merge upstream
-        id: merge
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -39,22 +40,12 @@ jobs:
           git fetch --no-tags upstream main
 
           if git merge-base --is-ancestor upstream/main HEAD; then
-            echo "updated=false" >> "$GITHUB_OUTPUT"
             echo "Already up to date with upstream."
             exit 0
           fi
 
           # A real conflict fails the job loudly instead of being resolved
-          # silently; merge the fork's own commits stays linear enough.
+          # silently.
           git merge --no-edit upstream/main
           git push origin HEAD:main
-          echo "updated=true" >> "$GITHUB_OUTPUT"
-
-  # A push made with GITHUB_TOKEN does not trigger other workflows, so the
-  # image build is called explicitly once the merge has landed.
-  docker:
-    name: Build images
-    needs: sync
-    if: needs.sync.outputs.updated == 'true'
-    uses: ./.github/workflows/docker-publish.yml
-    secrets: inherit
+          echo "Merged $(git rev-parse --short upstream/main) into main."

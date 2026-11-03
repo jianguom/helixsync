@@ -1,28 +1,30 @@
 name: Docker
 
-# Fork-only workflow: builds the single all-in-one image (Rust API server plus
-# the web dashboard behind nginx) and pushes it to Docker Hub. The two-image
-# split (server/Dockerfile + web/Dockerfile) is no longer published; build it
-# by hand if it is ever needed.
+# Fork-only workflow: builds the all-in-one image on demand and pushes it to
+# Docker Hub. Trigger it from the Actions tab ("Docker" -> "Run workflow"),
+# e.g. after "Sync upstream" has merged new upstream code.
 #
-# Upstream's release.yml is disabled in this fork: it publishes to GHCR and
-# auto-bumps VERSION on every push, which would diverge main from upstream and
-# break the automated upstream sync.
+# Every run gets its own tag based on the upstream VERSION file plus the
+# workflow run number, so images never overwrite each other:
+#   <VERSION>-build.<run number>    e.g. 1.0.1-build.12, 1.0.1-build.13, ...
+# Set the `version` input to publish an explicit tag instead (e.g. 1.0.2).
+# `latest` follows the most recent successful build.
+#
+# VERSION itself is never modified here: it belongs to upstream (their
+# release.yml bumps it). Rewriting it in the fork would make main diverge from
+# upstream and break the automated sync. Upstream's release.yml is disabled in
+# this fork for the same reason.
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
 #   DOCKERHUB_USERNAME  Docker Hub account that owns the image repository.
 #   DOCKERHUB_TOKEN     Docker Hub access token with read/write scope.
-# Without them the image is still built, but nothing is pushed.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
-  workflow_call:
-    secrets:
-      DOCKERHUB_USERNAME:
+    inputs:
+      version:
+        description: "Image tag to publish (default: <VERSION>-build.<run number>)"
         required: false
-      DOCKERHUB_TOKEN:
-        required: false
+        type: string
 
 permissions:
   contents: read
@@ -44,9 +46,16 @@ jobs:
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Read version
+      - name: Resolve version
         id: version
-        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          base=$(tr -d '[:space:]' < VERSION)
+          tag="${INPUT_VERSION:-$base-build.$GITHUB_RUN_NUMBER}"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Publishing helixsync:$tag (upstream VERSION $base)"
 
       - name: Log in to Docker Hub
         if: env.DOCKERHUB_TOKEN != ''
@@ -63,7 +72,7 @@ jobs:
           push: ${{ env.DOCKERHUB_TOKEN != '' }}
           tags: |
             ${{ env.DOCKERHUB_USERNAME || github.repository_owner }}/helixsync:latest
-            ${{ env.DOCKERHUB_USERNAME || github.repository_owner }}/helixsync:${{ steps.version.outputs.version }}
+            ${{ env.DOCKERHUB_USERNAME || github.repository_owner }}/helixsync:${{ steps.version.outputs.tag }}
             ${{ env.DOCKERHUB_USERNAME || github.repository_owner }}/helixsync:sha-${{ github.sha }}
           cache-from: type=gha,scope=helixsync
           cache-to: type=gha,mode=max,scope=helixsync
