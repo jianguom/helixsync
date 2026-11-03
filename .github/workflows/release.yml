@@ -1,10 +1,12 @@
 name: Release
 
+# Fork change: the push/pull_request triggers are removed here. Upstream's
+# release pipeline publishes to GHCR and, on every push to main, commits a
+# VERSION bump back to main. In a fork that bump makes `main` diverge from
+# upstream, so the next automated sync (sync-upstream.yml) would hit a conflict
+# on VERSION. This fork publishes Docker Hub images via docker-publish.yml
+# instead, so this workflow is left as a manual-only escape hatch.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch: {}
 
 permissions: {}
