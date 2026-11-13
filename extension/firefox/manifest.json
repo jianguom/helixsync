@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "__MSG_extName__",
   "default_locale": "en",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "description": "__MSG_extDescription__",
   "incognito": "not_allowed",
   "icons": {
@@ -16,7 +16,8 @@
     "bookmarks",
     "history",
     "tabs",
-    "alarms"
+    "alarms",
+    "contextMenus"
   ],
   "browser_specific_settings": {
     "gecko": {
@@ -48,6 +49,7 @@
   },
   "optional_permissions": [
     "tabGroups",
+    "notifications",
     "*://*/*",
     "ws://*/*",
     "wss://*/*"
