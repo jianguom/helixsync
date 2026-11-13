@@ -1,0 +1,78 @@
+# HelixSync — Portainer stack
+# All-in-one image (Rust API + web dashboard + nginx in ONE container) plus
+# Postgres. Paste into Portainer: Stacks -> Add stack -> Web editor.
+#
+# Only two values need to be set (Portainer -> Environment variables):
+#   POSTGRES_PASSWORD   database password, `openssl rand -hex 24`
+#   JWT_SIGNING_KEY     >=32 chars, `openssl rand -base64 48`
+# Optional: WEB_PORT (default 5173).
+#
+# The image tag is `latest`, i.e. the most recent manual Docker build. Update
+# the stack with "re-pull image" to upgrade; pin a specific tag
+# (e.g. nucas/helixsync:1.0.1-build.6 or :sha-<commit>) if you need to roll
+# back to an exact build.
+#
+# Everything else uses the server's built-in defaults (registration on,
+# encryption required, 5GiB per account, 25 devices, info logs). Adjust by
+# adding env vars to the app service in the editor if you need to.
+#
+# Data: /opt/docker/helixsync/postgres (host bind mount, the only state).
+# First start runs the database migrations automatically.
+
+services:
+  postgres:
+    # Explicit names so these are obvious in `docker ps` and hard to delete
+    # by mistake.
+    container_name: helixsync-postgres
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: helixsync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: helixsync
+      # One level below the bind mount so the mount root can hold other files
+      # (lost+found) without upsetting initdb.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - /opt/docker/helixsync/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helixsync -d helixsync"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  app:
+    container_name: helixsync-app
+    image: nucas/helixsync:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://helixsync:${POSTGRES_PASSWORD}@postgres:5432/helixsync
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY must be set (at least 32 chars)}
+      # nginx inside this container sets X-Real-IP/X-Forwarded-For itself, so
+      # the rate limiter may use them instead of the raw connection IP.
+      BEHIND_PROXY: "true"
+    ports:
+      # Only the web UI port is published; the API is proxied by the nginx
+      # inside this container.
+      - "${WEB_PORT:-5173}:80"
+    # supervisord stops nginx first, then gives the server up to 30s to drain.
+    stop_grace_period: 60s
+    # Runs as root (nginx binds :80); no privilege escalation. The image
+    # healthcheck probes /readyz and `/` every 30s.
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

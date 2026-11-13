@@ -1,0 +1,51 @@
+name: Sync upstream
+
+# Fork-only workflow: merges GhaziAlibi/helixsync main into this fork. Runs
+# daily and on demand; it only updates the code — image builds are manual
+# (see docker-publish.yml).
+#
+# The fork adds nothing upstream doesn't have except these workflow files plus
+# docker/, so a merge is path-disjoint and never conflicts. Upstream's
+# release.yml is disabled in this fork because it would auto-bump VERSION and
+# push that commit back to main, which is exactly what would break this merge.
+on:
+  schedule:
+    # Daily at 03:00 UTC (11:00 Asia/Shanghai).
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Merge upstream main
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Merge upstream
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B main origin/main
+          git remote add upstream https://github.com/GhaziAlibi/helixsync.git
+          git fetch --no-tags upstream main
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Already up to date with upstream."
+            exit 0
+          fi
+
+          # A real conflict fails the job loudly instead of being resolved
+          # silently.
+          git merge --no-edit upstream/main
+          git push origin HEAD:main
+          echo "Merged $(git rev-parse --short upstream/main) into main."
